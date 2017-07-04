@@ -1,0 +1,3 @@
+hibernate操作参数重载 http://bbs.csdn.net/topics/300210577
+hibernate一些细节：http://blog.sina.com.cn/s/blog_61feef0c0100p7c8.html
+hibernate批量删除，复合主键删除http://blog.163.com/zi_se_feng_ying/blog/static/52458261200882622042410/

@@ -1,0 +1,2 @@
+mybatis理论：http://www.cnblogs.com/Coda/p/4631200.html
+mybatis应用范例：http://www.cnblogs.com/xdp-gacl/p/4271627.html
