@@ -19,15 +19,21 @@ public class ClassLoaderTest {
     public static void main(String[] args) {
         //new ClassLoaderTest().testClassLoaderByConstant();
         //testClassLoader();
-        try {
-            Class<?> aClass = Class.forName("com.test.classloadtest.LoadedClass");
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        System.out.println(int.class);
-        new ClassLoaderTest().testClassLoaderByConstruct();
+        //try {
+        //    Class<?> aClass = Class.forName("com.test.classloadtest.LoadedClass");
+        //} catch (ClassNotFoundException e) {
+        //    e.printStackTrace();
+        //}
+        //System.out.println(int.class);
+        //new ClassLoaderTest().testClassLoaderByConstruct();
+        testVoidClass();
     }
 
+    private static void testVoidClass() {
+        System.out.println(void.class);
+        System.out.println(Void.class);
+        System.out.println(Void.TYPE);
+    }
     private void testClassLoaderByConstruct(){
         for (Constructor<?> constructor : LoadedClass.class.getConstructors()) {
             if (constructor.getParameterCount()==0) {
