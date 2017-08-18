@@ -2,6 +2,7 @@ package com.test.classloadtest;
 
 import com.alibaba.fastjson.JSON;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
@@ -16,10 +17,29 @@ import java.lang.reflect.Method;
 public class ClassLoaderTest {
 
     public static void main(String[] args) {
-        new ClassLoaderTest().testClassLoaderByConstant();
+        //new ClassLoaderTest().testClassLoaderByConstant();
         //testClassLoader();
+        new ClassLoaderTest().testClassLoaderByConstruct();
     }
 
+    private void testClassLoaderByConstruct(){
+        for (Constructor<?> constructor : LoadedClass.class.getConstructors()) {
+            if (constructor.getParameterCount()==0) {
+                System.out.println("scanned a no parameter construct");
+                System.out.println("execute constructing");
+                try {
+                    constructor.newInstance();
+                } catch (InstantiationException e) {
+                    e.printStackTrace();
+                } catch (IllegalAccessException e) {
+                    e.printStackTrace();
+                } catch (InvocationTargetException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+    }
     private void testClassLoaderByConstant() {
         System.out.println(0);
         Class<LoadedClass> loadedClassClass = LoadedClass.class;
