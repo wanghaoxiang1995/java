@@ -27,12 +27,29 @@ public class ClassLoaderTest {
         //System.out.println(int.class);
         //new ClassLoaderTest().testClassLoaderByConstruct();
         testVoidClass();
+
     }
 
     private static void testVoidClass() {
         System.out.println(void.class);
         System.out.println(Void.class);
         System.out.println(Void.TYPE);
+        try {
+            Constructor<Void> voidClass = Void.class.getDeclaredConstructor(null);
+            System.out.println(voidClass);
+            voidClass.setAccessible(true);
+            //voidClass.newInstance();
+            System.out.println(voidClass.newInstance());
+        } catch (InstantiationException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (NoSuchMethodException e) {
+            e.printStackTrace();
+        }
+
     }
     private void testClassLoaderByConstruct(){
         for (Constructor<?> constructor : LoadedClass.class.getConstructors()) {
