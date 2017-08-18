@@ -1,4 +1,4 @@
-package com.anotherpackage;
+package com.test.authortest.anotherpackage;
 
 /**
  * Created by Administrator on 2017/7/3 0003.

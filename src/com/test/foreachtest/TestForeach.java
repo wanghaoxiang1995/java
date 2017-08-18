@@ -1,3 +1,5 @@
+package com.test.foreachtest;
+
 /**
  * Created by Administrator on 2017/6/30 0030.
  */

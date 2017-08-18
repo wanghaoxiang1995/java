@@ -1,4 +1,4 @@
-package com.extendstest;
+package com.test.extendstest;
 
 import org.junit.Test;
 
@@ -14,5 +14,6 @@ public class TestMain {
 
         System.out.println("derived class:");
         new DerivedClass();
+
     }
 }

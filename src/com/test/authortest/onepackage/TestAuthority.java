@@ -1,6 +1,6 @@
-package com.test;
+package com.test.authortest.onepackage;
 
-import com.anotherpackage.InstanceGetter;
+import com.test.authortest.anotherpackage.InstanceGetter;
 
 /**
  * Created by Administrator on 2017/7/3 0003.

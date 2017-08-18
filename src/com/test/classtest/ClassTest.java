@@ -1,10 +1,12 @@
+package com.test.classtest;
+
 /**
  * Created by Administrator on 2017/7/3 0003.
  */
 public class ClassTest {
     public static void main(String[] args) {
         try {
-            Class.forName("TestBO");
+            Class.forName("com.test.classtest.TestBO");
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         }
