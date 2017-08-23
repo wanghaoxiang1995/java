@@ -24,7 +24,7 @@ public class DynamicProxyHandlerTest implements InvocationHandler {
         //原对象和代理对象实现了相同接口，代理对象可以被原对象方法识别
         //InvocationHandler进行代理对象要进行的代理操作（在invoke里添加附加操作）
         //Proxy类生成代理对象
-        //Proxy.newInstance(ClassLoader classLoader,Class[] interfaces,InvocationHandler)参数为类加载器，生成的代理实现的接口，代理方法处理器，可以生成代理对象
+        //Proxy.newProxyInstance(ClassLoader classLoader,Class[] interfaces,InvocationHandler)参数为类加载器，生成的代理实现的接口，代理方法处理器，可以生成代理对象
         //原对象激活方法
         //return method.invoke(proxy,args);
         //代理对象激活方法
