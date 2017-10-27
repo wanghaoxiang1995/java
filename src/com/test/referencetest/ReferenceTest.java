@@ -27,7 +27,7 @@ public class ReferenceTest {
         }
     }
 
-    public static void main(String[] args) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public static void main(String[] args) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException, InterruptedException {
         LinkedList<Reference<BigObject>> softRefList = getReferenceLinkedList("Soft Reference %d", SoftReference.class, BigObject.class);
         LinkedList<Reference<BigObject>> weakRefList = getReferenceLinkedList("Weak Reference %d", WeakReference.class, BigObject.class);
         SoftReference<BigObject> singleSoftRef = new SoftReference<>(new BigObject("unRefQueue soft reference"));
@@ -35,8 +35,19 @@ public class ReferenceTest {
         System.out.println("prepare gc");
         System.gc();
         LinkedList<Reference<BigObject>> phantomRefList = getReferenceLinkedList("Phantom Reference %d", PhantomReference.class, BigObject.class);
+        singleSoftRef.clear();
+        System.gc();
+        phantomRefList.getFirst().clear();
+        System.gc();
+        phantomRefList = null;
+        System.out.println("release phantomList");
+        softRefList = null;
+        Reference<? extends BigObject> remove = rq.remove(1l);
+        //Reference<? extends BigObject> remove = rq.remove();
+        System.gc();
         System.out.println("end");
-
+        System.gc();
+        System.out.println("exit");
     }
 
     public static <R extends Reference<C>,C> LinkedList<Reference<C>> getReferenceLinkedList(String identifyExpression,Class<R> rClass,Class<C> cClass) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException, InstantiationException {
