@@ -9,13 +9,13 @@ package com.test.mess;
  */
 public class SqlGenerate {
     
-    static String fromTime = "'2017-12-01'";
-    static String toTime = "'2017-12-02'";
+    static String fromTime = "'2018-01-04'";
+    static String toTime = "'2018-01-05'";
     
     
     public static void main(String[] args) {
         
-        System.out.println("\n\n"+generateAggrSql()+"\n\n\n");
+        System.out.println("\n\n"+generateAggrSql()+"\n\n\n\n");
         
     }
     
@@ -38,7 +38,7 @@ public class SqlGenerate {
                                      + "LEFT JOIN (SELECT from_account_id account_id, sum(price) price FROM pay_trade d  WHERE d.create_time >= %s and d.create_time <=%s and debit_type = 2 and d.type = 2 GROUP BY from_account_id ) d on a.account_id = d.account_id\n"
                                      + "LEFT JOIN (SELECT to_account_id account_id, sum(price) price FROM pay_trade e WHERE e.create_time >= %s and e.create_time <=%s and debit_type = 2 and e.type = 3 GROUP BY to_account_id) e on a.account_id = e.account_id \n"
                                      + "LEFT JOIN (SELECT account_id ,substring_index(group_concat(f.to_money * 0.01 order by f.create_time desc),\",\",1) as balance  FROM pay_xzb_record f WHERE   f.create_time >= %s and f.create_time <= %s  GROUP BY account_id) f on a.account_id = f.account_id \n"
-                                     + "ORDER BY a.account_id asc;"
+                                     + "ORDER BY f.balance desc;"
                 ,fromTime,
                 fromTime,toTime,
                 fromTime,toTime,
