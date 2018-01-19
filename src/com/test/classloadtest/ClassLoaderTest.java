@@ -1,7 +1,5 @@
 package com.test.classloadtest;
 
-import com.alibaba.fastjson.JSON;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -81,8 +79,8 @@ public class ClassLoaderTest {
             //try {
             System.out.println("~~---------------------");
                 System.out.println(method);
-                System.out.println(JSON.toJSONString(method.getParameterAnnotations()));
-                System.out.println(JSON.toJSONString(method.getParameterTypes()));
+                //System.out.println(JSON.toJSONString(method.getParameterAnnotations()));
+                //System.out.println(JSON.toJSONString(method.getParameterTypes()));
                 System.out.println(method.getParameterCount());
                 System.out.println(method.getParameters());
                 System.out.println(method.getTypeParameters());

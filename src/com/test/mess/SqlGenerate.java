@@ -9,8 +9,8 @@ package com.test.mess;
  */
 public class SqlGenerate {
     
-    static String fromTime = "'2018-01-04'";
-    static String toTime = "'2018-01-05'";
+    static String fromTime = "'2018-01-10'";
+    static String toTime = "'2018-01-11'";
     
     
     public static void main(String[] args) {
