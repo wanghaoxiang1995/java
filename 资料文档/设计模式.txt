@@ -1,2 +1,3 @@
 jive论坛：http://www.jdon.com/jive.htm
 大话设计模式
+think in patterns (with java)

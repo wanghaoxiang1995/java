@@ -1,3 +1,13 @@
 https://elasticsearch.cn/book/elasticsearch_definitive_guide_2.x/
 https://github.com/elasticsearch-cn/elasticsearch-definitive-guide
 https://es.xiaoleilu.com/
+
+安装使用：http://www.sojson.com/blog/81.html
+基本用法：http://blog.csdn.net/cnweike/article/details/33736429
+概念：http://www.jianshu.com/p/05cff717563c
+中文文档：https://github.com/13428282016/elasticsearch-CN/wiki/gettting-started
+java api:http://blog.csdn.net/napoay/article/details/51707023
+查询：
+https://www.blog-china.cn/template/documentHtml/1484101683485.html
+
+https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html
