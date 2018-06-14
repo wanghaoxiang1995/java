@@ -328,3 +328,5 @@ Returns:
 * * `Request body in query string` 对于不接受非POST请求的库，可以通过设置请求体为`source` query string 参数代替。当使用这种方式，`source_content_type`参数也应该传递一个媒体类型的值，来制定source的格式，如application/json
 * * `Content-Type Requirements` 请求体发送的内容类型必须使用`Content-Type`头指定，请求头的值必须映射到该API支持的一种格式。多数API支持JSON，YAML，CBOR和SMILE。bulk和multi-searchAPIs支持NDJSON（Newline delimited JSON），JSON和SMILE，而其他类型将会导致错误响应。另外，当使用`source` query string参数时内容类型必须使用`source_content_type` query string参数指定。
 
+### `URL-based access conrtol`
+* 许多用户使用一个基于URL的访问控制代理来安全的访问Elasticsearch索引，对于multi-search，multi-get和bulk请求，用户可以选择在URL中指定一个索引，也可以在每个请求体中的单独请求中指定。这让基于URL的访问控制受到挑战。防止用户覆盖URL中指定的索引，在`elasticsearch.yml`文件中添加设置`rest.action.multi.allow_explicit_index: false`，默认值为`true`当指定为`false`时，Elasticsearch将拒绝在请求体中指定一个确定索引的请求
