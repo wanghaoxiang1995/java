@@ -91,4 +91,117 @@
     当索引操作返回成功时可能不是所有的复制分片都启动了（默认的，仅要求主分片成功，但是这个行为可以改变）。这种情况下，total将等于基于number_of_replicas设定的全部分片，并且successful要等于启动的分片数量（主分片加上复制分片）。如果这没有失败，failed将为0
     ```
 * Automatic Index Creation
-  
+  * 当索引不存在时进行index操作会自动创建索引（使用create index API手动维护），并且在指定类型没有被创建时会自动建立一个动态type mapping（使用put mapping API手动维护）
+  * mapping本身非常灵活并且是格式自由的。新的字段和对象会自动添加到mapping定义中进行类型指定。
+  * 自动索引建立可以通过在所有节点配置文件中设置`action.auto_create_index`为`false`进行禁用。自动mapping创建可以通过对索引设置索引设定`index.mapper.dynamic`为`false`禁用
+  * 自动索引建立可以包含一个基于黑/白名单列表的模式匹配，如设置`action.auto_create_index`为`+aaa*,-bbb*,+ccc*,-*`（+代表允许，-代表禁用）
+* Versioning
+  * 每个被索引的文档会被给定一个版本号。相关的`version`数值会作为index API请求响应返回的一部分返回。index API操作在指定`version`参数时，允许乐观并发控制。一个不错的versioning用例是执行一个读取后更新的事务。指定一个来自原始文档读取的`version`确保在期间文档没有发生改变（当为了进行更新读取数据时，推荐设置`preference`为`_primary`）。例如：
+  ```
+  PUT twitter/_doc/1?version=2
+  {
+      "message" : "elasticsearch now has versioning support, double cool!"
+  }
+  ```
+  * 注意：versioning是完全实时的，并且不会被近实时的搜索操作影响。如果没有提供version，那么这个操作将会不进行任何版本检查执行
+  * 默认的，将使用从1开始，并且在每次包括更新|删除时增长1作为内部版本。版本数值能够使用外部值作为补充（例如在一个数据库中维护）。为了是使用这个功能，`version_type`应该被设为`external`。被提供的值必须为大于等于0，小于约9.2e+18的数值。当使用外部版本类型时，系统会检查index请求中的版本数值是否大于当前存储文档的版本，而不是检查版本数值是否匹配。如果通过，文档将被索引，新的版本数值将被应用。如果提供的值小于等于存储的文档的版本数值，将会发生版本冲突，这个索引操作将会失败
+  ```
+  外部版本支持0为一个有效的版本值。这允许使用从0而不是1开始的外部版本系统控制。它的副作用是只要版本号为0就不能用来使用Update-By-Query API或Delete By Query API
+  ```
+  * 一个不错的副作用是不需要在一个异步索引操作中执行源数据库改变结果维护严格的顺序，只要版本值来自使用的源数据库。即使简单的使用来自数据库的数据进行简单的外部版本使用，来更新Elasticsearch，为了没有任何不一致的原因，只有最后的版本将被用于索引操作
+* Version types
+  * 除了上面说的`internal`和`external`版本类型，Elasticsearch同样支持其他类型来指定用例。这里是一个不同版本类型和其意义差异的一个概览：
+    * `internal` 仅在给出版本与存储文档版本一致时索引文档
+    * `external`或`external_gt` 尽在给出的版本严格高于存储文档版本或文档不存在时索引文档。这个给出的版本将被用来作为将被存储的新文档的版本。支持的version必须为非负的long number。
+    * `external_gte` 仅在给出的版本大于等于存储文档版本时索引文档。如果没有已经存在的文档时操作也将成功。给出的版本将被作为新的存储文档的版本。支持的version为非负long number
+  * 注意：`external_gte`版本类型意味着特定的使用情形，应该小心使用。如果使用错误，可能导致数据丢失。另一个操作`force`，由于可能导致主分片和复制分片的差异，现在已经弃用
+* Operation Type
+  * 索引操作同样接受一个`op_type`，能够接受`create`动作，允许"put-if-absent"。当`create`已被使用，索引动作将失败
+  * 一个使用`op_type`参数的例子：
+  ```
+  PUT twitter/_doc/1?op_type=create
+  {
+      "user" : "kimchy",
+      "post_date" : "2009-11-15T14:12:12",
+      "message" : "trying out Elasticsearch"
+  }
+  ```
+  * 另一个使用uri指定create的选项：
+  ```
+  PUT twitter/_doc/1/_create
+  {
+      "user" : "kimchy",
+      "post_date" : "2009-11-15T14:12:12",
+      "message" : "trying out Elasticsearch"
+  }
+  ```
+* Automatic ID Generation
+  * 这个索引操作可以不指定id执行。在这种情况，id将会自动生成。另外，`op_type`将自动被设为`create`。这里有一个例子（注意使用POST代替PUT）：
+  ```
+  POST twitter/_doc/
+  {
+      "user" : "kimchy",
+      "post_date" : "2009-11-15T14:12:12",
+      "message" : "trying out Elasticsearch"
+  }
+  ```
+  * 以上操作的结果为：
+  ```
+  {
+      "_shards" : {
+          "total" : 2,
+          "failed" : 0,
+          "successful" : 2
+      },
+      "_index" : "twitter",
+      "_type" : "_doc",
+      "_id" : "W0tpsmIBdwcYyG50zbta",
+      "_version" : 1,
+      "_seq_no" : 0,
+      "_primary_term" : 1,
+      "result": "created"
+  }
+  ```
+* Routing
+  * 默认的，分片位置--或`routing`--通过使用一个文档id的hash控制。如果要更明确的控制，可以在每个操作基础上直接使用`routing`参数指定进入hash函数的值。例如：
+  ```
+  POST twitter/_doc?routing=kimchy
+  {
+      "user" : "kimchy",
+      "post_date" : "2009-11-15T14:12:12",
+      "message" : "trying out Elasticsearch"
+  }
+  ```
+  * 在上面的例子中，这个"_doc"文档被路由到的分片基于提供的`routing`参数“kimchy"
+  * 当设置一个明确的mapping，`_routing`字段能够被选择使索引操作直接从文档本身获取路由值。这需要（极少的）附加的文档解析的消耗
+* Distributed
+  * index基于它的route(查看Routing部分)直接到主要分片，并且在实际包含这个分片的节点执行。在主要分片完成操作以后，如果有需要，更新会分发到合适的复制分片上
+* Wait For Active Shards
+  * 为了提高写入到系统的弹性，索引操作可以配置为在处理操作之前等待确定数量的活动分片复制。如果没有必须数量的可用活动分片复制，写入操作必须等待并重试，直到需求数量的分片复制启动或者发生超时。默认的，写操作在处理之前仅等待主分片活动（`wait_for_active_shards=1`）。默认值可以通过设置`index.write.wait_for_active_shards`索引设定动态设置。为了选择每个操作的行为，可以使用`wait_for_active_shards`请求参数
+  * 有效值为`all`或任何小于等于索引中配置每分片复制数量（为`number_of_replicas+1`）总数量的正整数。指定一个负数值或者大于分片复制数量的数会抛出一个错误
+  * 例如，假设我们有一个三节点集群，A，B和C，我们建立一个索引`index`，设置the number of replicas set to 3(结果将产生4个分片复制，比节点数量还要多一个)。如果我们尝试一次索引操作，默认的这次操作仅确保每个分片的主要分片在处理前可用。这意味着即使B和C不在线，A具有主要分片复制，索引操作将仍会仅对这一份数据复制进行处理。如果`wait_for_active_shards`设置为`all`（或者设为`4`，具有相同的效果)，当我们在所有节点上更没有全部的4个分片复制时，这个索引操作将会失败。除非一个新的节点加入集群来持有第四个分片复制，这个操作将会超时
+  * 注意这个设定能很好的减少写入操作没有写入到必须数量的分片复制的几率，但是不能完全排除这种可能性，因为检查发生在操作开始之前这点是很重要的。一旦写操作开始，仍有可能在主分片成功时有任意数量的复制分片失败。写操作的响应的`_shards`片段显示所有复制分片分片复制的成功/失败数量
+  ```
+  {
+      "_shards" : {
+          "total" : 2,
+          "failed" : 0,
+          "successful" : 2
+      }
+  }
+  ```
+* Refresh
+  * 控制使这个请求的变动对搜索可见。
+* Noop Updates
+  * 当更新一个文档使用索引api,这个文档总是建立一个新的版本，即使文档没有改变。使用设置`detect_noop`为true的`_update` api将不接受无改变的文档。这个操作在index api中不可用，因为索引api不会去获取老的源，无法将他和新的源比较
+  * 在何时不接受noop updates并没有硬性规定。有大量的因素，如你的数据源发送实际noops更新的频率与接受更新的分片上Elasticsearch运行中每秒查询的次数
+* Timeout
+  * 分配主要分片执行索引操作在索引操作执行过程中可能不可用。一些原因可能像是主要分片正在从一个网关恢复或者正在重新分配。默认的，索引操作在返回失败和错误响应前最多在一分钟内等待主要分片可用。`timeout`参数可以用来明确指定等待时长。下面是设置为5分钟的例子：
+  ```
+  PUT twitter/_doc/1?timeout=5m
+  {
+      "user" : "kimchy",
+      "post_date" : "2009-11-15T14:12:12",
+      "message" : "trying out Elasticsearch"
+  }
+  ```
