@@ -205,3 +205,186 @@
       "message" : "trying out Elasticsearch"
   }
   ```
+## Get API
+get API允许从索引中基于它的id获取JSON类型的文档。下面的例子是从称为twitter的索引中，从_doc类型下获取id值为0的JSON文档：
+```
+GET twitter/_doc/0
+```
+上面的get操作的结果为：
+```
+{
+    "_index" : "twitter",
+    "_type" : "_doc",
+    "_id" : "0",
+    "_version" : 1,
+    "found": true,
+    "_source" : {
+        "user" : "kimchy",
+        "date" : "2009-11-15T14:12:12",
+        "likes": 0,
+        "message" : "trying out Elasticsearch"
+    }
+}
+```
+上面的结果包含我们希望获取的文档的`_index`，`_type`，`_id`和`_version`，如果能够找到的话包含文档实际的`_source`。
+这个API同样允许使用`HEAD`检查文档是否存在，如：
+```
+HEAD twitter/_doc/0
+```
+* Realtime
+  * 默认的，get API是实时的，并且不被索引刷新率（when data will become visible for search）影响。如果一个文档被更新，但是还没有刷新，get API 会发出一个refresh call in-place使文档可见。这同样使上次刷新以来的其他文档改变可见。为了关闭实时GET，一种方式是可以设置`realtime`参数为false
+* Source filtering
+  * 默认的，get操作返回`_source`字段内容，除非你使用`stored_fields`参数或者`_source`字段被禁用。你可以通过使用`_source`参数关闭获取`_source`
+  ```
+  GET twitter/_doc/0?_source=false
+  ```
+  * 如果你仅需要一个或两个来自完整的`_source`的字段，你可以使用`_source_include`和`_source_exclude`参数来包含或过滤出你需要的部分。这在大文档部分获取时非常有用，能够节省网络开支。使用逗号分割列表或者通配表达式的参数都被接受。例如：
+  ```
+  GET twitter/_doc/0?_source_include=*.id&_source_exclude=entities
+  ```
+  * 如果你像指定包含的，你可以使用一个简短的表示：
+  ```
+  GET twitter/_doc/0?_source=*.id,retweeted
+  ```
+* Stored Fields
+  * get 操作允许通过使用`stored_fields`字段指定返回的存储字段。付过请求字段没有被存储，将会被忽略。考虑像下面这个mapping：
+  ```
+  PUT twitter
+  {
+     "mappings": {
+        "_doc": {
+           "properties": {
+              "counter": {
+                 "type": "integer",
+                 "store": false
+              },
+              "tags": {
+                 "type": "keyword",
+                 "store": true
+              }
+           }
+        }
+     }
+  }
+  ```
+  * 现在添加一个文档：
+  ```
+  PUT twitter/_doc/1
+  {
+      "counter" : 1,
+      "tags" : ["red"]
+  }
+  ```
+  * 尝试获取他：
+  ```
+  GET twitter/_doc/1?stored_fields=tags,counter
+  ```
+  * 上面的get操作的结果为
+  ```
+  {
+     "_index": "twitter",
+     "_type": "_doc",
+     "_id": "1",
+     "_version": 1,
+     "found": true,
+     "fields": {
+        "tags": [
+           "red"
+        ]
+     }
+  }
+  ```
+  * 从文档本身获取的字段值总是返回一个数组。由于没有存储`counter`字段，这个请求在获取`stored_fields`时会简单的忽略它
+  * 获取如`_routing`字段的源数据字段也是可能的
+  ```
+  PUT twitter/_doc/2?routing=user1
+  {
+      "counter" : 1,
+      "tags" : ["white"]
+  }
+  ```
+  ```
+  GET twitter/_doc/2?routing=user1&stored_fields=tags,counter
+  ```
+  * 上面的get操作结果为：
+  ```
+  {
+     "_index": "twitter",
+     "_type": "_doc",
+     "_id": "2",
+     "_version": 1,
+     "_routing": "user1",
+     "found": true,
+     "fields": {
+        "tags": [
+           "white"
+        ]
+     }
+  }
+  ```
+  * 同样仅有叶子字段能够通过`stored_field`选项返回。所以对象字段无法被返回，这样的请求将会失败
+* Getting the `_source` directly
+  * 使用`/{index}/{type}/{id}/_source`进入点不适用任何附加内容时，只获取文档`_source`字段。如：
+  ```
+  GET twitter/_doc/1/_source
+  ```
+  * 你同样可以使用相同的源过滤器参数来控制返回`_source`中的哪个部分：
+  ```
+  GET twitter/_doc/1/_source?_source_include=*.id&_source_exclude=entities'
+  ```
+  * 注意，_source进入点同样有一个HEAD变体可以有效的测试文档_source是否存在。一个存在的文档在mapping中禁用_source时，将不会有一个_source。
+  ```
+  HEAD twitter/_doc/1/_source
+  ```
+* Routing
+  * 当索引使用路由控制能力时，为了获取到一个文档，routing值同样应该被提供。例如：
+  ```
+  GET twitter/_doc/2?routing=user1
+  ```
+  * 上面将会获取到id为2的tweet，但是路由基于user。注意，发出一个带有不正确路由的get，将会无法获取到文档
+* Preference
+  * 控制使用哪个分片复制执行get请求的`preference`。默认的，这个动作在分片复制之间是随机的
+  * `preference`可以设为：
+    * `_primary` 这个操作将仅发给主分片并执行
+    * `_local` 这个操作在可能的情况下优先在本地分配分片执行
+    * Custom （string）value 一个自定义值将被用来保证相同分片使用同样的自定义值。这可以帮助在refresh状态命中不同分片时跳过值。一个简单的值可以像是web session id 或者 user name
+* Refresh
+  * `refresh`参数可以被设为true来使相关分片在get操作前refresh并使其可被搜索。应该在仔细考虑和验证过它不会导致严重的系统负载（和减慢索引）后才将它设置为true
+* Distributed
+  * get操作散列到特定的分片id。然后get转发到这个分片id的一个复制并返回结果。这个复制可以是这个分片id组中的主要分片和它的复制分片。这意味着我们有越多的复制分片，我们有越好的GET扩展
+* Versioning support
+  * 仅当当前的版本等于指定的版本时，你可以使用`version`参数来获取文档。这个行为与所有除了总是会获取文档的`FORCE`外的version types相同。注意FORCE已经废弃了
+  * 本质上，Elasticsearch标记老的文档为已删除并添加一个完整的新文档。虽然你无法访问老的文档版本了，他不会立即消失。Elasticsearch在你继续索引更多数据时在后台清理删除的文档
+## Delete API
+* delete API允许从指定索引中根据id删除一个已输入的JSON文档。下面是从一个索引twitter下的_doc类型删除id为1的JSON文档：
+```
+DELETE /twitter/_doc/1
+```
+* 上面的删除操作结果为：
+```
+{
+    "_shards" : {
+        "total" : 2,
+        "failed" : 0,
+        "successful" : 2
+    },
+    "_index" : "twitter",
+    "_type" : "_doc",
+    "_id" : "1",
+    "_version" : 2,
+    "_primary_term": 1,
+    "_seq_no": 5,
+    "result": "deleted"
+}
+```
+* Versioning
+  * 每个文档被索引都被标记版本。当删除一个文档时，可以指定`version`来确保我们尝试删除的相关文档确实在被删除并且期间没有更改。每个对一个文档执行的写操作，包括删除，会导致它的版本增长。删除的文档的版本号在删除后的小段时间内仍然可用，来允许当前操作控制。这个删除的文档版本保留可用的时间长度在`index.gc_deletes`索引设置定义并且默认值为60秒
+* Routing
+  * 当索引使用路由控制能力时，为了删除一个文档，路由值也应该被提供，例如：
+  ```
+  DELETE /twitter/_doc/1?routing=kimchy
+  ```
+  * 上面的将会删除id为1的tweet文档，但是将会基于user路由。注意，发起一个未正确路由的删除，将不会删除文档
+  * 当`_routing` mapping设置为`required`并且没有指定路由值，删除api将抛出一个`RoutingMissingException`并且拒绝这个请求
+* Automatic index creation
+  * 
