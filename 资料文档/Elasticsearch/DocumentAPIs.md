@@ -387,4 +387,473 @@ DELETE /twitter/_doc/1
   * 上面的将会删除id为1的tweet文档，但是将会基于user路由。注意，发起一个未正确路由的删除，将不会删除文档
   * 当`_routing` mapping设置为`required`并且没有指定路由值，删除api将抛出一个`RoutingMissingException`并且拒绝这个请求
 * Automatic index creation
-  * 
+  * 如果一个外部版本变量被使用，如果在之前没有被创建，删除操作自动创建一个索引（查看create index API如何手动建立一个索引），同样在之前没有创建指定的类型时，自动建立一个动态的type mapping来指定type（查看put mapping API如何手动建立一个type mapping）
+* Distributed
+  * 删除操作散列到特定的分片id，然后转发到这个id组的主要分片，和复制（如果有需要）来分享到id组的复制分片
+* Wait For Active Shards
+  * 当进行一个删除请求，你可以设置`wait_for_active_shards`参数来要求一个开始处理删除请求前最小活动分片复制数量
+* Refresh
+  * 控制发生改变的请求何时对搜索可见
+* Timeout
+  * 在执行删除操作时，分配的主要分片执行删除操作时可能不可用，一些原因可能是主要分片当前正在从存储中恢复或是正在重新分配。默认的，删除操作在失败并响应一个错误前最多等待一分钟等待主要分片可用。`timeout`参数能够用来明确指定等待多长时间。下面是一个设定等待5分钟的例子：
+  ```
+  DELETE /twitter/_doc/1?timeout=5m
+  ```
+## Delete By Query API
+* `_delete_by_query`最简单的用法就是对每个匹配查询的文档执行删除。API像这样：
+```
+POST twitter/_delete_by_query
+{
+  "query": { 
+    "match": {
+      "message": "some message"
+    }
+  }
+}
+```
+* 这个查询必须通过与Search API相同的方式，传递值到`query`键。你同样可以用与search api相同的方式使用`q`参数
+* 这将返回像这样一些东西：
+```
+{
+  "took" : 147,
+  "timed_out": false,
+  "deleted": 119,
+  "batches": 1,
+  "version_conflicts": 0,
+  "noops": 0,
+  "retries": {
+    "bulk": 0,
+    "search": 0
+  },
+  "throttled_millis": 0,
+  "requests_per_second": -1.0,
+  "throttled_until_millis": 0,
+  "total": 119,
+  "failures" : [ ]
+}
+```
+* `_delete_by_query`获取一个开始时的索引的快照，并且使用内部版本管理删除他找到的内容。这意味着如果在快照产生和删除请求处理期间有文档改变，你将得到一个版本冲突。当版本匹配时，文档被删除
+* 由于内部版本控制不支持作为一个有效版本号，版本号为的文档不能使用`_delete_by_query`删除，并将响应失败
+* 在`_delete_by_query`执行期间，为了找到所有匹配的文档进行删除，多个搜索请求被连续执行。每次找到一批文档，执行一个相应的bulk请求来删除所有这些文档。在搜索或bulk请求被拒绝的情况下，`_delete_by_query`依赖于一个默认策略来重试拒绝的请求（最多10次，使用指数退避）。达到最大尝试现在导致`_delete_by_query`中断并且所有失败在响应中的`failures`返回。已经执行的删除操作仍然有效。换句话说，这个过程无法回退，只会中断。当第一次失败导致一个中断，所有的失败会被返回，失败的bulk请求返回到`failures`元素中，因此有相当多的失败实体是有可能的。
+* 如果你想要算入版本冲突而不是让他们引起中断，那么可以设置`conflicts=proceed`到url或者`"conflits":"proceed"`到请求体中
+* 回到API格式，这将会从twitter索引中删除tweets：
+```
+POST twitter/_doc/_delete_by_query?conflicts=proceed
+{
+  "query": {
+    "match_all": {}
+  }
+}
+```
+* 一次删除多个索引和多个类型也是可行的，就像下面的搜索API这样：
+```
+POST twitter,blog/_docs,post/_delete_by_query
+{
+  "query": {
+    "match_all": {}
+  }
+}
+```
+* 如果你提供了`routing`，路由会复制到这个scroll query，限制这个处理在匹配路由值的分片上进行
+```
+POST twitter/_delete_by_query?routing=1
+{
+  "query": {
+    "range" : {
+        "age" : {
+           "gte" : 10
+        }
+    }
+  }
+}
+```
+* 默认的，`_delete_by_query`使用scroll一批处理1000。你可以使用`scroll_size` URL参数改变批大小：
+```
+POST twitter/_delete_by_query?scroll_size=5000
+{
+  "query": {
+    "term": {
+      "user": "kimchy"
+    }
+  }
+}
+```
+* URL Parameters
+  * 标准的附加参数如`pretty`，the Delete By Query API 同样支持`refresh`，`wait_for_completion`，`timeout`和`scroll`
+  * 发送`refresh`一旦请求完成，将会刷新所有这次delete by query有关分片。这与Delete API的`refresh`参数不同，Delete API的`refresh`参数仅导致接受delete请求的分片被刷新
+  * 如果请求包含`wait_for_completion=false`那么Elasticsearch将执行一些准备检查，开始这个请求，然后返回一个`task`，可以使用Tasks APIs来取消或者获取task状态。
+  * Elasticsearch同样将创建一条task的记录作为一个文档到`.tasks/task/${taskId}`。你可以根据情况保留或删除。当你完成他时，删除他来归还它使用的空间。
+  * `wait_for_active_shards`控制在处理请求之前至少有多少活动分片复制。`timeout`控制每次请求等待不可用的分片可用多长时间。work指明在Bulk API中如何工作。由于`_delete_by_query`使用scroll搜索，你也可以指定`scroll`参数控制保持"search context"存活时间，如`?scroll=10m`，默认为5分钟
+  * `requests_per_second`能够设为任何正数（1.4,6,1000...），通过使用等待时间填补每次批处理时间，控制`_delete_by_query`发起的批量删除操作速率。阈值可以通过设置`requests_per_second`为`-1`禁用
+  * 阈值通过在批处理之间等待完成，所以`_delete_by_query`内部使用的scroll可以给定一个考虑到填充的超时时间。填充时间对在批大小被不同的`requests_per_second`除和写入时间是不同的。默认的批大小为1000，所以如果`requests_per_second`设为`500`：
+  ```
+  target_time = 1000 / 500 per second = 2 seconds
+  wait_time = target_time - write_time = 2 seconds - .5 seconds = 1.5 seconds
+  ```
+  * 由于批处理作为单个`_bulk`请求发起，大的批大小会使Elasticsearch创建许多请求然后等待一段时间，再开始下一组。使用"bursty"而不是"smooth"。默认为-1
+* Response body
+  * JSON响应像下面这样：
+  ```
+  {
+    "took" : 147,
+    "timed_out": false,
+    "total": 119,
+    "deleted": 119,
+    "batches": 1,
+    "version_conflicts": 0,
+    "noops": 0,
+    "retries": {
+      "bulk": 0,
+      "search": 0
+    },
+    "throttled_millis": 0,
+    "requests_per_second": -1.0,
+    "throttled_until_millis": 0,
+    "failures" : [ ]
+  }
+  ```
+  * `took` 整个操作从开始到结束花费的毫秒数
+  * `timed_out` 如果有任何请求在delete by query期间执行超时了，这个标记为true
+  * `total` 成功处理的文档数
+  * `deleted` 删除的文档数
+  * `batches` delete by query获取scroll响应的数量
+  * `version_conflicts` delete by query命中的版本冲突数量
+  * `noops` delete by query时这个字段总等于0。他存在仅仅时因为delete by query,update by query 和 reindex APIs使用同样的结构返回结果
+  * `retries` 重试delete by query尝试次数。`bulk`是bulk动作重试次数，`search`是search动作重试次数
+  * `throttled_millis` 为了遵守`requests_per_second`请求睡眠的时间
+  * `requests_per_second` 在delete by query期间每秒有效执行的请求数
+  * `throttled_until_millis` 这个字段在delete by query响应中应该总是等于0。他仅意味着在使用Task API时，他指明一个throttled请求为了遵守`requests_per_second`下一次被执行的时间（从epoch起毫秒数）
+  * `failures` 处理期间任何不会恢复的错误的数组。如果这个不是空的，那么这个请求会因为这些失败中止。Delete-by-query使用batches实现，所有的失败导致整个处理过程中止，但是所有当前失败的批被搜集到这个数组。你可以使用`conflicts`选项阻止从版本冲突中止重新索引
+* Works with the Task API
+  * 你可以使用Task API获取任何运行中的delete-by-query请求的状态：
+  ```
+  GET _tasks?detailed=true&actions=*/delete/byquery
+  ```
+  * 响应看起来像这样：
+  ```
+  {
+    "nodes" : {
+      "r1A2WoRbTwKZ516z6NEs5A" : {
+        "name" : "r1A2WoR",
+        "transport_address" : "127.0.0.1:9300",
+        "host" : "127.0.0.1",
+        "ip" : "127.0.0.1:9300",
+        "attributes" : {
+          "testattr" : "test",
+          "portsfile" : "true"
+        },
+        "tasks" : {
+          "r1A2WoRbTwKZ516z6NEs5A:36619" : {
+            "node" : "r1A2WoRbTwKZ516z6NEs5A",
+            "id" : 36619,
+            "type" : "transport",
+            "action" : "indices:data/write/delete/byquery",
+            "status" : {    
+              "total" : 6154,
+              "updated" : 0,
+              "created" : 0,
+              "deleted" : 3500,
+              "batches" : 36,
+              "version_conflicts" : 0,
+              "noops" : 0,
+              "retries": 0,
+              "throttled_millis": 0
+            },
+            "description" : ""
+          }
+        }
+      }
+    }
+  }
+  ```
+  * 这个对象包含实际状态。他就像一个total字段的重要补充的响应json。`total`是reindex预期执行操作的全部数量。通过附加的`updated`，`created`和`deleted`字段，你可以评估这个进展。在他们的和等于total字段时，这个请求将结束
+  * 你可以直接使用task查看：
+  ```
+  GET /_tasks/taskId:1
+  ```
+  * 使用集成了`wait_for_completion=false`的API的优势是返回任务完成状态。如果task已经完成，设置了`wait_for_completion=false`，那么将会返回`results`或者一个`error`字段。这个特性的消耗时`wait_for_completion=false`在`.tasks/task/${taskId}`创建了文档。由你来删除那个文档
+* Works with the Cancel Task API
+  * 任何Delete By Query可以使用Task Cancel API取消：
+  ```
+  POST _tasks/task_id:1/_cancel
+  ```
+  * task_id可以用前面的tasks API查找
+  * 取消应该很快发生，但是可能需要花费几秒。任务状态API将继续列出，直到他被唤醒并取消自己
+* Rethrottling
+  * `requests_per_second`的值可以在一个运行的delete by query上使用`_rethrottle` API改变：
+  ```
+  POST _delete_by_query/task_id:1/_rethrottle?requests_per_second=-1
+  ```
+  * `task_id`可以使用上面的tasks API寻找
+  * 就像在`_delete_by_query` API中可以设定`requests_per_second`可以设置为`-1`来禁用限制，或者任何正值如`1.7`或`12`来限制到该登记。Rethrottling加速是直接生效的，而减速将在完成当前批之后。这需要预防scroll超时
+* Slicing
+  * Delete-by-query支持Sliced Scroll并行删除处理。并行可以提高效率并且提供一个方便的方式来分割请求为更小的部分
+  * Manually slicing
+    * 手动分割一个delete-by-query通过提供一个slice id和每个请求slices的总数：
+    ```
+    POST twitter/_delete_by_query
+    {
+      "slice": {
+        "id": 0,
+        "max": 2
+      },
+      "query": {
+        "range": {
+          "likes": {
+            "lt": 10
+          }
+        }
+      }
+    }
+    POST twitter/_delete_by_query
+    {
+      "slice": {
+        "id": 1,
+        "max": 2
+      },
+      "query": {
+        "range": {
+          "likes": {
+            "lt": 10
+          }
+        }
+      }
+    }
+    ```
+    * 可以这样验证工作：
+    ```
+    GET _refresh
+    POST twitter/_search?size=0&filter_path=hits.total
+    {
+      "query": {
+        "range": {
+          "likes": {
+            "lt": 10
+          }
+        }
+      }
+    }
+    ```
+    * 可以在结果中看到`total`像这样：
+    ```
+    {
+      "hits": {
+        "total": 0
+      }
+    }
+    ```
+  * Automatic slicing
+    * 你同样可以让`delete-by-query`使用Sliced Scroll用`_uid`分割，自动并行化。使用`slices`到指定值来分割使用：
+    ```
+    POST twitter/_delete_by_query?refresh&slices=5
+    {
+      "query": {
+        "range": {
+          "likes": {
+            "lt": 10
+          }
+        }
+      }
+    }
+    ```
+    * 你可以像这样进行验证：
+    ```
+    POST twitter/_search?size=0&filter_path=hits.total
+    {
+      "query": {
+        "range": {
+          "likes": {
+            "lt": 10
+          }
+        }
+      }
+    }
+    ```
+    * 在结果中可以看到`total`：
+    ```
+    {
+      "hits": {
+        "total": 0
+      }
+    }
+    ```
+    * 设置`slices`为`auto`将让Elasticsearch选择使用的分割数量。这个设置将对每个分片使用一个slice，一直到一个确定的限制。如果有多个源索引，slices的数量将会基于分片最少的索引
+    * 使用上面片段添加`slices`到`_delete_by_query`将自动化手动过程，创建子请求，意味着有一些转变：
+      * 你可以在Tasks APIs里查看这些请求。这些子请求是带`slices`请求的任务的"child"任务
+      * 获取这个带`slices`的请求的task状态仅包含slices完成状态
+      * 这些子请求是对于像cancellation和rethrottling等是独立可寻址的
+      * Rethrottling带`slices`的请求将rethrottle未结束的子请求比例
+      * Canceling带slices的请求将会取消每个子请求
+      * 由于slices的性质，每个子请求不会有文档分配偏好。所有文档将可被寻址，但是一些slices可能比其他的更大。预期大的slices有更均匀的分布
+      * 参数如`requests_per_second`和`size`在一个带`slices`的请求中，将会分发部分到每个子请求。结合上面的关于分布不均匀的点，你应该得出结论使用带slices的size时，可能不会产生一个精确size被`_delete_by_query`的文档
+      * 虽然几乎是同时发生的，每个子请求有一个略有不同的源索引的快照
+  * Picking the number of slices
+    * 如果自动分割，设置`slices`为`auto`会为大多数索引选择一个合理的数值。如果你手动分割或以别的方式调整自动分割，使用这些引导
+    * query在slices数值等于索引中分片数量时执行效率最高。如果数值很大，（如500）选择一个更小的数值，因为过多的slices将会损害性能。设置slices大于分片数量通常不会提高效率，并且会加重负荷
+    * Delete performance 通过number of slices线性调整可用资源
+    * 无论是query或delete行为运行时依赖被重新索引的文档和集群资源控制
+## Update API
+* update API 允许基于一个提供的脚本更新文档。这个操作从索引中获取文档（按分片排列），运行脚本（使用脚本语言选项和参数），将结果重新索引（同样允许删除或忽略操作）。这使用版本确保在get和reindex之间没有发生更新
+* 注意，这个操作仍然意味着完全重新索引这个文档，这只是移除了一些网络来回，减少了在get和index之间的版本冲突几率。这个特性要工作需要开启`_source`字段
+* 例如，索引一个简单文档：
+```
+PUT test/_doc/1
+{
+    "counter" : 1,
+    "tags" : ["red"]
+}
+```
+* Scripted updates
+  * 现在，我们可以执行一个将会增加counter的脚本：
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : {
+          "source": "ctx._source.counter += params.count",
+          "lang": "painless",
+          "params" : {
+              "count" : 4
+          }
+      }
+  }
+  ```
+  * 我们可以添加一个tag到tags列表中（注意，如果tag已经存在了，他将仍然添加他，因为他是一个list）：
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : {
+          "source": "ctx._source.tags.add(params.tag)",
+          "lang": "painless",
+          "params" : {
+              "tag" : "blue"
+          }
+      }
+  }
+  ```
+  * 添加到`_source`中，下面的变量可以通过`ctx` map使用：`_index`，`_type`，`_id`，`_version`，`_routing`和`_now`（当前时间戳）
+  * 我们同样天天加一个新的字段到document中：
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : "ctx._source.new_field = 'value_of_new_field'"
+  }
+  ```
+  * 或者从document移除一个字段
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : "ctx._source.remove('new_field')"
+  }
+  ```
+  * 另外，我们甚至可以在操作执行时改变操作。例如如果tags字段包含green时删除文档，否则不进行操作（noop）：
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : {
+          "source": "if (ctx._source.tags.contains(params.tag)) { ctx.op = 'delete' } else { ctx.op = 'none' }",
+          "lang": "painless",
+          "params" : {
+              "tag" : "green"
+          }
+      }
+  }
+  ```
+* Updates with a partial document
+  * 这个更新API同样支持通过部分文档，它将被合并到存在的文档中（简单的循环合并，内部对象合并，代替核心的"keys/values"和数组）。要完全提到已存在的文档，index API应该被替代。下面部分更新添加一个新的字段到存在的文档中：
+  ```
+  POST test/_doc/1/_update
+  {
+      "doc" : {
+          "name" : "new_name"
+      }
+  }
+  ```
+  * 如果`doc`和`script`同时指定了，那么`doc`将被忽略，最好将你的部分文档的字段对放到脚本自身中
+* Detecting noop updates
+  * 如果`doc`指定已存在的`_source`的值合并，默认的updates在侦测到没有任何改变时将不会任何东西，并且会返回"result":"noop"像这样：
+  ```
+  POST test/_doc/1/_update
+  {
+      "doc" : {
+          "name" : "new_name"
+      }
+  }
+  ```
+  * 如果`name`在请求发送之前已经是new_name了，那么整个更新请求将被忽略。响应返回的`result`元素在请求被忽略时返回`noop`
+  ```
+  {
+     "_shards": {
+          "total": 0,
+          "successful": 0,
+          "failed": 0
+     },
+     "_index": "test",
+     "_type": "_doc",
+     "_id": "1",
+     "_version": 6,
+     "result": "noop"
+  }
+  ```
+  * 你可以通过设置"detect_noop":false来禁用这个行为：
+  ```
+  POST test/_doc/1/_update
+  {
+      "doc" : {
+          "name" : "new_name"
+      },
+      "detect_noop": false
+  }
+  ```
+* Upserts
+  * 如果文档不存在，`upsert`元素的内容将被插入为一个新的文档。如果文档已经存在，那么将执行脚本代替：
+  ```
+  POST test/_doc/1/_update
+  {
+      "script" : {
+          "source": "ctx._source.counter += params.count",
+          "lang": "painless",
+          "params" : {
+              "count" : 4
+          }
+      },
+      "upsert" : {
+          "counter" : 1
+      }
+  }
+  ```
+  * scripted_upsert
+    * 如果你想要你的脚本无论文档是否存在都运行--例如脚本处理文档初始化而不是使用`upsert`元素--那么设置`scripted_upsert`为true：
+    ```
+    POST sessions/session/dh3sgudg8gsrgl/_update
+    {
+        "scripted_upsert":true,
+        "script" : {
+            "id": "my_web_session_summariser",
+            "params" : {
+                "pageViewEvent" : {
+                    "url":"foo.com/bar",
+                    "response":404,
+                    "time":"2014-01-01 12:32"
+                }
+            }
+        },
+        "upsert" : {}
+    }
+    ```
+  * doc_as_upsert
+    * 代替发送部分`doc`附加一个`upsert`文档，设置`doc_as_upsert`为true将使用`doc`内容作为`upsert`的值：
+    ```
+    POST test/_doc/1/_update
+    {
+        "doc" : {
+            "name" : "new_name"
+        },
+        "doc_as_upsert" : true
+    }
+    ```
+* Parameters
+  * 更新操作支持下面query-string参数：
+  |||
+  |-|-|
+  |retry_on_conflict||
+  
